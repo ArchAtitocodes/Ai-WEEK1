@@ -13,13 +13,37 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 from difflib import SequenceMatcher, get_close_matches
 import datetime
+import re
 
 # ---------------- Paths & Data Loading ----------------
 HERE = os.path.dirname(__file__) if '__file__' in globals() else '.'
 EXTERNAL_QA_PATH = os.path.join(HERE, 'data', 'qa_db.json')  # optional external override
 
 # Embedded 133 Q&A dataset 
+# Added greetings as requested
 EMBEDDED_QA = [
+    ("Hello", "Hello there! How can I assist you with crypto today?"),
+    ("Hi", "Hi! What's on your mind about cryptocurrencies?"),
+    ("Hey", "Hey! Ready to dive into the world of crypto?"),
+    ("Good morning", "Good morning! How can I help you explore crypto today?"),
+    ("Good afternoon", "Good afternoon! What crypto questions do you have?"),
+    ("Good evening", "Good evening! Let's talk crypto."),
+    ("How are you?", "I'm a bot, so I don't have feelings, but I'm ready to help you with crypto info!"),
+    ("What's up?", "Not much, just here to answer your crypto questions! What's up with you?"),
+    # --- Added general conversation data ---
+    ("Who are you?", "I am CryptoBuddy, a chatbot designed to answer your questions about cryptocurrency and blockchain technology."),
+    ("What are you?", "I'm a friendly chatbot, your CryptoBuddy! I'm here to provide information about the world of crypto."),
+    ("What can you do?", "I can answer a wide range of questions about cryptocurrencies, blockchain, DeFi, NFTs, and more. I can also offer some basic crypto recommendations. Just ask away!"),
+    ("Tell me a joke.", "Why did the Bitcoin investor break up with the Ethereum developer? Because he felt like he was living in her shadow!"),
+    ("Tell me another joke.", "How many miners does it take to change a lightbulb? None, they just wait for the next block and the problem solves itself."),
+    ("What is your name?", "You can call me CryptoBuddy. It's a pleasure to meet you!"),
+    ("Thank you", "You're welcome! Happy to help. Is there anything else I can assist you with?"),
+    ("Thanks", "Anytime! Let me know if you have more questions."),
+    ("How old are you?", "I'm as young as the latest code push! In the digital world, age is just a version number."),
+    ("Where are you from?", "I exist in the cloud, powered by code and a love for all things crypto. You could say I'm from the decentralized world!"),
+    ("What is the weather like?", "I don't have access to real-time weather data, but I can tell you if the crypto market is looking bullish or bearish!"),
+    ("What time is it?", "I don't have a clock, but it's always a good time to learn about blockchain! What can I help you with?"),
+    ("Can you help me?", "Of course! That's what I'm here for. Ask me anything about cryptocurrency or blockchain."),
     ("What is a cryptocurrency?", "A cryptocurrency is a digital or virtual currency that is secured by cryptography, making it nearly impossible to counterfeit or double-spend. Many are based on decentralized blockchain technology."),
     ("What is a blockchain?", "A blockchain is a decentralized, distributed, and public digital ledger that is used to record transactions across many computers so that the record cannot be altered retroactively without the alteration of all subsequent blocks and the consensus of the network."),
     ("Who invented Bitcoin?", "Bitcoin was invented by an unknown person or group of people using the name Satoshi Nakamoto."),
@@ -225,17 +249,28 @@ def recommend_for_goal(user_goal: str):
     return "Top coins (by composite score): " + ', '.join(ranking)
 
 # ---------------- Fuzzy Q/A matching ----------------
+def _tokenize_text(text):
+    """Tokenizes text, converts to lowercase, and removes punctuation."""
+    text = text.lower()
+    text = re.sub(r'[^\w\s]', '', text) # Remove punctuation
+    return set(text.split()) # Use set for Jaccard similarity
+
 def best_qa_match(user_text, top_n=3):
     """
     Returns a list of (question, answer, score) for the best matches found.
-    Score is similarity ratio between 0 and 1.
+    Score is a combined similarity metric between 0 and 1.
     """
     user_text_norm = user_text.strip().lower()
+    user_words = _tokenize_text(user_text_norm)
     matches = []
     for q in QA_QUESTIONS:
         q_norm = q.lower()
-        score = SequenceMatcher(None, user_text_norm, q_norm).ratio()
-        matches.append((q, QA_DICT.get(q_norm, ""), score))
+        q_words = _tokenize_text(q_norm)
+
+        seq_ratio = SequenceMatcher(None, user_text_norm, q_norm).ratio()
+        jaccard_sim = len(user_words.intersection(q_words)) / len(user_words.union(q_words)) if len(user_words.union(q_words)) > 0 else 0
+        combined_score = (seq_ratio * 0.7) + (jaccard_sim * 0.3) # Weighted average
+        matches.append((q, QA_DICT.get(q_norm, ""), combined_score))
     matches.sort(key=lambda x: x[2], reverse=True)
     return matches[:top_n]
 
@@ -247,8 +282,8 @@ def answer_user_query(user_text):
     # Close fuzzy matches
     matches = best_qa_match(user_text, top_n=5)
     best_q, best_a, best_score = matches[0]
-    # If similarity is high enough, return that answer
-    if best_score >= 0.55:
+    # If combined similarity is high enough, return that answer
+    if best_score >= 0.50: # Adjusted threshold for combined score
         # if there are very close alternatives, show best and other suggestions
         suggestions = [m for m in matches if m[2] >= 0.45 and m[0] != best_q]
         if suggestions:
@@ -289,7 +324,7 @@ class CryptoBuddyGUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(BOT_NAME + " — Q&A Chat")
-        self.geometry("780x560")
+        self.state('zoomed') # Start the window maximized
         self.minsize(600, 420)
         self.configure(bg=BG_COLOR)
         
@@ -362,13 +397,13 @@ class CryptoBuddyGUI(tk.Tk):
 
         # Bottom frame for input
         bottom_frame = ttk.Frame(self, padding=(10, 10))
-        bottom_frame.pack(side="bottom", fill="x")
+        bottom_frame.pack(side="bottom", fill="x", pady=(0, 10))
         bottom_frame.columnconfigure(0, weight=1)
 
         # Input Entry with Placeholder
         self.entry_var = tk.StringVar()
-        self.entry = ttk.Entry(bottom_frame, textvariable=self.entry_var, font=(FONT_NAME, 11))
-        self.entry.grid(row=0, column=0, sticky="ew", ipady=5, padx=(0, 10))
+        self.entry = ttk.Entry(bottom_frame, textvariable=self.entry_var, font=(FONT_NAME, 12))
+        self.entry.grid(row=0, column=0, sticky="ew", ipady=8, padx=(0, 10))
         self.entry.bind("<Return>", self._on_send)
         self._set_placeholder()
         self.entry.bind("<FocusIn>", self._clear_placeholder)
@@ -379,8 +414,8 @@ class CryptoBuddyGUI(tk.Tk):
 
     # --- Placeholder Logic ---
     def _set_placeholder(self, event=None):
-        if not self.entry_var.get():
-            self.entry.config(foreground='grey')
+        if not self.entry_var.get() and self.focus_get() != self.entry:
+            self.entry.configure(foreground='grey')
             self.entry_var.set("Ask a question...")
 
     def _clear_placeholder(self, event=None):
@@ -436,14 +471,13 @@ class CryptoBuddyGUI(tk.Tk):
                 messagebox.showerror("Export chat", f"Failed to save file:\n{e}")
 
     def _on_send(self, event=None):
-        user_text = self.entry_var.get().strip()
-        if not user_text or self.entry.cget('foreground') == 'grey':
+        user_text = self.entry.get().strip()
+        if not user_text or self.entry.cget('foreground') == 'grey': # Don't send placeholder
             return
 
         # Handle exit commands
         if user_text.lower() in ('quit', 'exit', 'bye'):
             self._post_user_message(user_text)
-            self._post_bot_message("Bye — trade safe!")
             self.entry_var.set("")
             self._set_placeholder()
             return
@@ -452,14 +486,13 @@ class CryptoBuddyGUI(tk.Tk):
         if user_text.lower() in ('list topics', 'topics', 'help topics'):
             sample = "\n".join([f"- {q}" for q in QA_QUESTIONS[:12]]) + "\n... (133 total)"
             self._post_user_message(user_text)
-            self._post_bot_message(f"Here are some example questions:\n{sample}")
             self.entry_var.set("")
             self._set_placeholder()
             return
 
         self._post_user_message(user_text)
-        self.entry_var.set("")
-        self._set_placeholder()
+        self.entry.delete(0, "end")
+
         self.status_var.set("Thinking...")
         self.update_idletasks()
 
